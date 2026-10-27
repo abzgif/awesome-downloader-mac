@@ -17,7 +17,7 @@ const PROFILE_DIRS = {
 
 async function registerBrowser({ browser, extensionId }, { dataDirectory, integrationRoot }) {
   if (!['Chrome', 'Edge', 'Firefox'].includes(browser)) throw new Error('Choose Chrome, Edge, or Firefox.');
-  if (typeof extensionId !== 'string' || !(browser === 'Firefox' ? /^[A-Za-z0-9@._{}-]{1,128}$/ : /^[a-p]{32}$/).test(extensionId)) throw new Error('Copy the extension ID from your browser's extensions page.');
+  if (typeof extensionId !== 'string' || !(browser === 'Firefox' ? /^[A-Za-z0-9@._{}-]{1,128}$/ : /^[a-p]{32}$/).test(extensionId)) throw new Error("Copy the extension ID from your browser's extensions page.");
   const host = 'com.awesome.downloader';
   const nativeHostPath = path.join(integrationRoot, 'integration', 'native-host.sh');
   const manifest = { name: host, description: 'Awesome Downloader browser bridge', path: nativeHostPath, type: 'stdio' };
