@@ -70,7 +70,6 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/ffmpeg"
     ],
-    "electronDist": "node_modules/electron/dist",
     "mac": {
       "target": [
         { "target": "dmg", "arch": ["x64", "arm64"] },
