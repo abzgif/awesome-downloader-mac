@@ -79,7 +79,7 @@
       "category": "public.app-category.utilities",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "identity": null
+      "identity": "-"
     },
     "dmg": {
       "title": "Awesome Downloader",
