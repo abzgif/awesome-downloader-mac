@@ -1,79 +1,54 @@
-# Awesome Downloader
+# Awesome Downloader (macOS)
 
-A Windows download manager with a compact desktop interface and browser video
-buttons. Original open-source implementation; not affiliated with Internet
-Download Manager and not a complete feature-for-feature replacement.
+A macOS download manager with a compact desktop interface and browser video
+buttons. Open-source implementation ported to macOS with native Apple Silicon
+(arm64) and Intel (x64) support.
 
-**Early preview:** Private/sign-in-required, DRM and live media are unsupported. Please report bugs
-without sharing session tokens or signed media links.
-
-## Just want to use it?
-
-Download **Awesome-Downloader-Setup.exe** from the project's
-[Windows preview release](https://github.com/Ahmadkhattak1/awesome-downloader/releases/tag/v0.1.0-preview.4),
-then see the [installation and usage guide](docs/INSTALL.md). It is a normal
-Windows installer with Start-menu and
-desktop shortcuts. No GitHub account, Node.js, or developer tools are needed for
-the desktop app.
-
-The installer is currently an unsigned preview. Browser video buttons require
-one manual "Load unpacked" setup; Chrome/Edge store listings are not available.
+**Early preview:** Private/sign-in-required, DRM and live media are unsupported.
 
 ## Features
 
-- HTTP(S) downloads with parallel ranges where the server supports them.
-- Pause/resume for supported transfers, history, scheduling and speed limits.
-- Chrome/Edge media detection and quality selection; selected video/audio tracks
+- High-speed HTTP(S) multi-segmented parallel downloads.
+- Pause/resume for supported transfers, history, scheduling, and speed limits.
+- Chrome and Edge media detection and quality selection; selected video/audio tracks
   are combined locally with FFmpeg.
-- Download File Info with save location, category, Download Later, Start and Cancel.
+- Download File Info with custom save folder, categories, Download Later, and Start.
 - Separate progress and completion windows, duplicate-active-download prevention.
+- Native macOS integration: menu bar tray, dock support, DMG installer, and native messaging bridge.
 
-YouTube uses captured browser-session data and the GoogleVideo SABR transport
-library. It is not a promise of universal site support or DRM circumvention.
-The legacy manual watch-URL resolver optionally uses yt-dlp; browser quality
-selection does not invoke it. Firefox YouTube capture has not reached parity.
+## Installation
 
-## Develop
+1. Download **Awesome-Downloader-0.1.0-macOS-arm64.dmg** (Apple Silicon M1/M2/M3/M4) or **x64.dmg** (Intel Macs) from GitHub Releases.
+2. Open the DMG and drag **Awesome Downloader** into your **Applications** folder.
+3. Launch Awesome Downloader from Applications or Spotlight.
 
-On Windows x64 with Node.js 22+:
+## Browser Extension Setup (Chrome / Edge)
 
-```powershell
-npm ci
+The browser extension allows one-click video detection and download:
+
+1. Click **Browser Integration** in the Awesome Downloader toolbar.
+2. Click **Copy extension folder path**.
+3. Click **Open Chrome extensions** (or Edge).
+4. Turn on **Developer mode** in your browser's Extensions page.
+5. Click **Load unpacked**, press **Cmd+Shift+G**, paste the copied path, and select the folder.
+6. The desktop app will automatically connect with the extension. Refresh any video page to see the download button.
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run automated tests
 npm test
+
+# Start the desktop app in development
 npm start
+
+# Build package (DMG)
+npm run dist
 ```
 
-`npm run package` builds the unpacked application. `npm run dist` builds a local
-NSIS installer, without publishing. `npm run dist:portable` builds a portable
-executable. See [release requirements](docs/RELEASING.md) before distributing
-either. Current builds are unsigned and have no auto-updater.
+## License
 
-The optional legacy extractor is described in [THIRD-PARTY.md](THIRD-PARTY.md).
-Do not commit its executable. `npm ci` installs the locked media dependencies.
-
-## Contribute
-
-**New contributor? Start with the [contributor guide and roadmap](docs/CONTRIBUTOR-START-HERE.md).**
-It explains the current project stage, issue labels, dependency order and how
-to agree on a task before coding. Major goals are delivered through focused,
-reviewed PRs; planned platform support is not yet released support.
-
-Bug reports, tests, documentation and pull requests are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
-You can fork the project and submit a pull request without repository write access.
-
-High-priority work: YouTube throughput and session refresh, clean-machine
-installer testing, browser-store packaging, and accessibility.
-
-## Privacy and licensing
-
-Media request credentials are held in memory, not stored in download history.
-History and browser-integration configuration are stored locally in
-`%USERPROFILE%\.awesome-downloader`. The bridge is authenticated and loopback-only.
-Do not publish this directory or browser profiles in issues.
-
-Original project code is [MIT licensed](LICENSE). Third-party components retain
-their own licenses, including GPL-covered FFmpeg components; see
-[THIRD-PARTY.md](THIRD-PARTY.md). Proprietary binaries, extracted evidence, local
-research and test screenshots are not part of the public source.
-Only download content you are permitted to save.
+Original project code is [MIT licensed](LICENSE). Included third-party binaries retain their respective licenses.

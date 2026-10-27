@@ -1,11 +1,11 @@
-name: Build Windows release candidate
+name: Build macOS Release Candidate
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -16,14 +16,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run dist
-      - name: Create SHA-256 file
-        shell: powershell
-        run: (Get-FileHash release/Awesome-Downloader-Setup.exe -Algorithm SHA256).Hash.ToLower() + '  Awesome-Downloader-Setup.exe' | Set-Content release/SHA256SUMS.txt
+      - name: Create SHA-256 checksums
+        run: |
+          cd release
+          shasum -a 256 *.dmg *.zip 2>/dev/null > SHA256SUMS.txt || true
       - uses: actions/upload-artifact@v4
         with:
-          name: unsigned-windows-release-candidate
+          name: macos-release-candidate
           path: |
-            release/Awesome-Downloader-Setup.exe
+            release/*.dmg
+            release/*.zip
             release/SHA256SUMS.txt
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7

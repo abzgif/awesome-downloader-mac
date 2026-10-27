@@ -36,7 +36,8 @@ export function choicesFromInfo(info,url) {
   return result;
 }
 function executable() {
-  return process.versions.electron&&process.resourcesPath&&!process.defaultApp?path.join(process.resourcesPath,'tools','yt-dlp.exe'):fileURLToPath(new URL('../vendor/yt-dlp.exe',import.meta.url));
+  const binaryName = process.platform === 'win32' ? 'yt-dlp.exe' : (process.platform === 'darwin' ? 'yt-dlp_macos' : 'yt-dlp');
+  return process.versions.electron&&process.resourcesPath&&!process.defaultApp?path.join(process.resourcesPath,'tools',binaryName):fileURLToPath(new URL(`../vendor/${binaryName}`,import.meta.url));
 }
 export function youtubeError(raw) {
   const message=String(raw);

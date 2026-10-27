@@ -1,19 +1,19 @@
 {
   "name": "awesome-downloader",
-  "version": "0.1.0",
-  "description": "A Windows download manager with segmented transfers and browser video capture",
+  "version": "0.1.0-mac",
+  "description": "A macOS download manager with segmented transfers and browser video capture",
   "main": "desktop/main.cjs",
   "private": true,
-  "repository": { "type": "git", "url": "https://github.com/Ahmadkhattak1/awesome-downloader.git" },
-  "bugs": { "url": "https://github.com/Ahmadkhattak1/awesome-downloader/issues" },
-  "author": "Awesome Downloader contributors",
+  "repository": { "type": "git", "url": "https://github.com/abuzargifari/awesome-downloader-mac.git" },
+  "bugs": { "url": "https://github.com/abuzargifari/awesome-downloader-mac/issues" },
+  "author": "Abuzar Gifary",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.mjs integration/*.test.cjs extension/*.test.cjs",
-    "package": "electron-builder --win dir",
-    "dist": "electron-builder --win nsis --x64 --publish never",
-    "dist:portable": "electron-builder --win portable --x64 --publish never"
+    "package": "electron-builder --mac dir",
+    "dist": "electron-builder --mac dmg --publish never",
+    "dist:zip": "electron-builder --mac zip --publish never"
   },
   "devDependencies": {
     "electron": "44.9.0",
@@ -39,15 +39,12 @@
     ],
     "asar": true,
     "extraResources": [
-      { "from": "node_modules/ffmpeg-static/ffmpeg.exe.LICENSE", "to": "licenses/FFmpeg-LICENSE.txt" },
-      { "from": "node_modules/ffmpeg-static/ffmpeg.exe.README", "to": "licenses/FFmpeg-BUILD.txt" },
       { "from": "node_modules/ffmpeg-static/LICENSE", "to": "licenses/ffmpeg-static-LICENSE.txt" },
       { "from": "node_modules/googlevideo/LICENSE", "to": "licenses/googlevideo-LICENSE.txt" },
       {
         "from": "vendor",
         "to": "tools",
         "filter": [
-          "yt-dlp.exe",
           "*.txt"
         ]
       },
@@ -63,34 +60,35 @@
         "from": "integration",
         "to": "browser/integration",
         "filter": [
-          "native-host.exe",
+          "native-host.sh",
           "native-host.cjs",
-          "NativeHostLauncher.cs",
           "README.md",
-          "register-native-host.ps1"
+          "register-native-host.sh"
         ]
       }
     ],
     "asarUnpack": [
-      "node_modules/ffmpeg-static/ffmpeg.exe"
+      "node_modules/ffmpeg-static/ffmpeg"
     ],
     "electronDist": "node_modules/electron/dist",
-    "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "icon": "build/icon.ico",
-      "signExecutable": false
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
     },
-    "portable": {
-      "artifactName": "Awesome-Downloader-${version}-Windows.exe"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Awesome Downloader",
-      "artifactName": "Awesome-Downloader-Setup.exe"
+    "dmg": {
+      "title": "Awesome Downloader",
+      "artifactName": "Awesome-Downloader-${version}-macOS-${arch}.dmg",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
     }
   },
   "dependencies": {

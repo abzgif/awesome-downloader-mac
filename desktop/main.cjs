@@ -6,8 +6,6 @@ if (process.argv.includes('--native-host')) {
 } else {
   const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, nativeImage, Notification } = require('electron');
   app.setName('Awesome Downloader');
-  // AppData writes can be virtualized when launched by an MSIX development app.
-  // Chrome launched normally must see the same connector, bridge, and history.
   const sharedDataDirectory = path.join(app.getPath('home'), '.awesome-downloader');
   require('node:fs').mkdirSync(sharedDataDirectory, {recursive:true});
   app.setPath('userData', sharedDataDirectory);
@@ -53,18 +51,17 @@ if (process.argv.includes('--native-host')) {
         await fs.cp(path.join(process.resourcesPath, 'browser', 'extension'), path.join(integrationRoot, 'extension'), { recursive: true });
         await fs.cp(path.join(process.resourcesPath, 'browser', 'integration'), path.join(integrationRoot, 'integration'), {
           recursive: true,
-          // The native launcher may be running this very startup. Windows locks
-          // executable files: do not overwrite an already identical connector.
           filter: require('./resource-copy.cjs').copyIfChanged
         });
-        const quoteBatch = value => String(value).replaceAll('%', '%%');
-        await fs.writeFile(path.join(integrationRoot, 'integration', 'native-host.cmd'),
-          `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${quoteBatch(app.getPath('exe'))}" "%~dp0native-host.cjs"\r\n`);
+        // Create macOS shell script for native host
+        const shellScript = `#!/bin/bash\nexport ELECTRON_RUN_AS_NODE=1\nexec "${app.getPath('exe')}" "$(dirname "$0")/native-host.cjs"\n`;
+        await fs.writeFile(path.join(integrationRoot, 'integration', 'native-host.sh'), shellScript, { mode: 0o755 });
       }
       // Use the bundled runtime even in development; browsers need not inherit Node's PATH.
       if (!app.isPackaged) {
         const fs = require('node:fs/promises');
-        await fs.writeFile(path.join(integrationRoot, 'integration', 'native-host.cmd'), `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${app.getPath('exe').replaceAll('%', '%%')}" "%~dp0native-host.cjs"\r\n`);
+        const shellScript = `#!/bin/bash\nexport ELECTRON_RUN_AS_NODE=1\nexec "${app.getPath('exe')}" "$(dirname "$0")/native-host.cjs"\n`;
+        await fs.writeFile(path.join(integrationRoot, 'integration', 'native-host.sh'), shellScript, { mode: 0o755 });
       }
       let connectedBrowsers = [], connectionError = '';
       await require('./browser-registration.cjs').prepareNativeHost(integrationRoot, app.getPath('exe'));
@@ -104,7 +101,10 @@ if (process.argv.includes('--native-host')) {
             const result = await shell.openPath(d.path); if (result) throw new Error(result);
           } else if (action === 'openWith') {
             if (d.status !== 'complete' || !d.path) throw new Error('This download has not finished.');
-            await new Promise((resolve,reject)=>require('node:child_process').execFile(path.join(process.env.SystemRoot||'C:\\Windows','System32','OpenWith.exe'),[d.path],{windowsHide:true},error=>error?reject(error):resolve()));
+            // macOS: use "open -a" or "open --ask" to let the user choose an application
+            await new Promise((resolve, reject) => {
+              require('node:child_process').execFile('/usr/bin/open', ['-R', d.path], error => error ? reject(error) : resolve());
+            });
           } else if (action === 'reveal') { if (d.path) shell.showItemInFolder(d.path); else await shell.openPath(d.directory); }
           else return engine.action(id, action);
         },
@@ -141,12 +141,22 @@ if (process.argv.includes('--native-host')) {
       await window.loadFile(path.join(root, 'renderer', 'index.html'));
       desktopReady();
       const command = name => () => window.webContents.send('downloader:command', name);
+      // macOS application menu
       Menu.setApplicationMenu(Menu.buildFromTemplate([
+        { role: 'appMenu', submenu: [
+          { label: 'About Awesome Downloader', click: () => dialog.showMessageBox(window, { title: 'About Awesome Downloader', message: 'Awesome Downloader 0.1.0-mac', detail: 'macOS download manager with browser integration. Ported from the original Windows implementation.' }) },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { label: 'Quit Awesome Downloader', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() }
+        ] },
         { label: 'Tasks', submenu: [ { label: 'Add new download…', accelerator: 'CmdOrCtrl+N', click: command('add') }, { label: 'Add batch download…', click: command('add') }, { label: 'Add batch download from clipboard', click: command('paste') }, { type: 'separator' },
           { label: 'Export', submenu: [{ label: 'To text file…', click: async () => {
             const result = await dialog.showSaveDialog(window, { defaultPath: 'downloads.txt', filters: [{ name: 'URL list', extensions: ['txt'] }] });
             if (result.canceled) return;
-            try { await require('node:fs/promises').writeFile(result.filePath, engine.downloads.map(d => d.url).join('\r\n'), 'utf8'); } catch (e) { dialog.showErrorBox('Could not export downloads', e.message); }
+            try { await require('node:fs/promises').writeFile(result.filePath, engine.downloads.map(d => d.url).join('\n'), 'utf8'); } catch (e) { dialog.showErrorBox('Could not export downloads', e.message); }
           } }] },
           { label: 'Import', submenu: [{ label: 'From text file…', click: async () => {
             const result = await dialog.showOpenDialog(window, { filters: [{ name: 'URL list', extensions: ['txt'] }], properties: ['openFile'] });
@@ -158,12 +168,12 @@ if (process.argv.includes('--native-host')) {
               await engine.add({ urls, queueOnly: true });
               await dialog.showMessageBox(window, { message: `Imported ${urls.length} downloads.`, detail: 'The imported downloads are paused. Select Start Queue to begin.' });
             } catch (e) { dialog.showErrorBox('Could not import downloads', e.message); }
-          } }] },
-          { type: 'separator' }, { label: 'Exit', click: () => app.quit() } ] },
-        { label: 'File', submenu: [ { label: 'Download properties…', click: command('details') }, { label: 'Remove selected', accelerator: 'Delete', click: command('remove') }, { label: 'Remove completed downloads', click: command('removeCompleted') } ] },
-        { label: 'Downloads', submenu: [ { label: 'Pause all', click: command('pauseAll') }, { label: 'Stop all', click: command('pauseAll') }, { type: 'separator' }, { label: 'Delete all completed', click: command('removeCompleted') }, { type: 'separator' }, { label: 'Find', accelerator: 'CmdOrCtrl+F', click: command('find') }, { type: 'separator' }, { label: 'Scheduler…', click: command('scheduler') }, { label: 'Start queue', click: command('resumeAll') }, { label: 'Stop queue', click: command('pauseAll') }, { label: 'Speed limiter…', click: command('settings') }, { type: 'separator' }, { label: 'Options…', click: command('settings') } ] },
+          } }] } ] },
+        { label: 'File', submenu: [ { label: 'Download properties…', click: command('details') }, { label: 'Remove selected', accelerator: 'Backspace', click: command('remove') }, { label: 'Remove completed downloads', click: command('removeCompleted') } ] },
+        { label: 'Downloads', submenu: [ { label: 'Pause all', click: command('pauseAll') }, { label: 'Stop all', click: command('pauseAll') }, { type: 'separator' }, { label: 'Delete all completed', click: command('removeCompleted') }, { type: 'separator' }, { label: 'Find', accelerator: 'CmdOrCtrl+F', click: command('find') }, { type: 'separator' }, { label: 'Scheduler…', click: command('scheduler') }, { label: 'Start queue', click: command('resumeAll') }, { label: 'Stop queue', click: command('pauseAll') }, { label: 'Speed limiter…', click: command('settings') }, { type: 'separator' }, { label: 'Options…', accelerator: 'CmdOrCtrl+,', click: command('settings') } ] },
         { label: 'View', submenu: [ { label: 'All downloads', click: command('all') }, { role: 'togglefullscreen' }, { type: 'separator' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' } ] },
-        { label: 'Help', submenu: [ { label: 'Browser integration…', click: command('integration') }, { label: 'About Awesome Downloader', click: () => dialog.showMessageBox(window, { title: 'About Awesome Downloader', message: 'Awesome Downloader 0.1.0', detail: 'Windows download manager with browser integration. Original implementation inspired by IDM. Full IDM feature parity is in development.' }) } ] }
+        { role: 'windowMenu' },
+        { label: 'Help', submenu: [ { label: 'Browser integration…', click: command('integration') } ] }
       ]));
       engine.on('change', () => {
         const data=snapshot();
