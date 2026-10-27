@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 
 // macOS native messaging manifest directories per browser.
 const MANIFEST_DIRS = {
@@ -14,6 +15,17 @@ const PROFILE_DIRS = {
   Chrome: path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome'),
   Edge: path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge')
 };
+
+function computeExtensionId(folderPath) {
+  // Chrome derives an unpacked extension ID by taking sha256(path_utf8)[:32]
+  // and converting hex characters 0-f to letters a-p.
+  const hash = crypto.createHash('sha256').update(folderPath, 'utf8').digest('hex').slice(0, 32);
+  let id = '';
+  for (let i = 0; i < hash.length; i++) {
+    id += String.fromCharCode('a'.charCodeAt(0) + parseInt(hash[i], 16));
+  }
+  return id;
+}
 
 async function registerBrowser({ browser, extensionId }, { dataDirectory, integrationRoot }) {
   if (!['Chrome', 'Edge', 'Firefox'].includes(browser)) throw new Error('Choose Chrome, Edge, or Firefox.');
@@ -44,13 +56,28 @@ async function registerBrowser({ browser, extensionId }, { dataDirectory, integr
   return { ok: true, manifestPath, extensionPath };
 }
 
-// Read only extension registrations, never browser history, cookies, or page data.
+// Read extension registrations or auto-register deterministic extension IDs
 async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
   const results = [];
+  const host = 'com.awesome.downloader';
+  const nativeHostPath = path.join(integrationRoot, 'integration', 'native-host.sh');
+
   for (const [browser, profileRoot] of Object.entries(PROFILE_DIRS)) {
-    let profiles;
-    try { profiles = await fs.readdir(profileRoot, { withFileTypes: true }); } catch { continue; }
     const ids = new Set();
+
+    // 1. Compute deterministic extension IDs from possible extension paths (unpacked in Chrome)
+    const possiblePaths = [
+      path.join(integrationRoot, 'extension'),
+      await fs.realpath(path.join(integrationRoot, 'extension')).catch(() => null)
+    ].filter(Boolean);
+
+    for (const p of possiblePaths) {
+      ids.add(computeExtensionId(p));
+    }
+
+    // 2. Also try reading profile directories if macOS permissions permit
+    let profiles;
+    try { profiles = await fs.readdir(profileRoot, { withFileTypes: true }); } catch { profiles = []; }
     for (const profile of profiles.filter(p => p.isDirectory() && /^(Default|Profile \d+)$/.test(p.name))) {
       for (const file of ['Preferences', 'Secure Preferences']) {
         try {
@@ -58,8 +85,8 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
           for (const [id, entry] of Object.entries(settings)) {
             if (!/^[a-p]{32}$/.test(id) || !entry.path || !path.isAbsolute(entry.path)) continue;
             const installed = await fs.realpath(entry.path).catch(() => null);
-            const expected = await fs.realpath(path.join(integrationRoot, 'extension'));
-            let ownExtension = installed === expected;
+            const expected = await fs.realpath(path.join(integrationRoot, 'extension')).catch(() => null);
+            let ownExtension = installed && expected && installed === expected;
             if (installed && !ownExtension) {
               const manifest = JSON.parse(await fs.readFile(path.join(installed, 'manifest.json'), 'utf8'));
               const background = await fs.readFile(path.join(installed, 'background.js'), 'utf8');
@@ -67,16 +94,39 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
             }
             if (ownExtension) ids.add(id);
           }
-        } catch { /* A running browser can temporarily replace a preference file. */ }
+        } catch { /* Browser preference file read may fail or be locked */ }
       }
     }
-    if (ids.size) {
-      const result = await registerBrowser({ browser, extensionId: [...ids][0] }, { dataDirectory, integrationRoot });
-      // Multiple profiles may assign different IDs to this same unpacked extension.
-      const manifest = JSON.parse(await fs.readFile(result.manifestPath, 'utf8'));
-      manifest.allowed_origins = [...ids].map(id => `chrome-extension://${id}/`);
-      await fs.writeFile(result.manifestPath, JSON.stringify(manifest, null, 2));
-      results.push({ browser, connected: true });
+
+    // Always ensure the manifest exists in the NativeMessagingHosts folder
+    const manifestDir = MANIFEST_DIRS[browser];
+    try {
+      await fs.mkdir(manifestDir, { recursive: true });
+      const manifestPath = path.join(manifestDir, `${host}.json`);
+      let existingOrigins = [];
+      try {
+        const existing = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+        if (Array.isArray(existing.allowed_origins)) existingOrigins = existing.allowed_origins;
+      } catch {}
+
+      for (const id of ids) {
+        const origin = `chrome-extension://${id}/`;
+        if (!existingOrigins.includes(origin)) existingOrigins.push(origin);
+      }
+
+      if (existingOrigins.length > 0) {
+        const manifest = {
+          name: host,
+          description: 'Awesome Downloader browser bridge',
+          path: nativeHostPath,
+          type: 'stdio',
+          allowed_origins: existingOrigins
+        };
+        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+        results.push({ browser, connected: true });
+      }
+    } catch {
+      /* Manifest directory creation or write may fail if browser not installed */
     }
   }
   return results;
@@ -85,10 +135,9 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
 async function prepareNativeHost(integrationRoot, executable) {
   const folder = path.join(integrationRoot, 'integration');
   const target = path.join(folder, 'native-host.sh');
-  // Create the shell script that launches the native host via Electron.
   const script = `#!/bin/bash\nexport ELECTRON_RUN_AS_NODE=1\nexec "${executable}" "$(dirname "$0")/native-host.cjs"\n`;
   await fs.writeFile(target, script, { mode: 0o755 });
   await fs.writeFile(path.join(folder, 'runtime-path.txt'), executable, 'utf8');
 }
 
-module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost };
+module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost, computeExtensionId };
