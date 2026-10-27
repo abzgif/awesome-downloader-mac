@@ -4,6 +4,8 @@ A macOS download manager with a compact desktop interface and browser video
 buttons. Open-source implementation ported to macOS with native Apple Silicon
 (arm64) and Intel (x64) support.
 
+**Ported from:** [Awesome Downloader for Windows](https://github.com/TheAwesomeDeveloper/Awesome-Downloader-for-Windows).
+
 **Early preview:** Private/sign-in-required, DRM and live media are unsupported.
 
 ## Features
