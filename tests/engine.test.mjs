@@ -229,6 +229,28 @@ test('server ignoring ranges fails without publishing corrupt files', async t =>
   assert.equal(d.path, null);
 });
 
+test('single segment accepting 200 OK when server ignores range completes without error', async t => {
+  const f = await fixture(t);
+  const server = http.createServer((req, res) => {
+    res.setHeader('content-length', f.data.length);
+    res.setHeader('accept-ranges', 'bytes');
+    res.statusCode = 200;
+    res.end(f.data);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  try {
+    f.engine.settings.connections = 1;
+    await f.engine.add({ url: `http://127.0.0.1:${port}/test.mp4` });
+    const d = f.engine.downloads[f.engine.downloads.length - 1];
+    await until(() => ['complete', 'error'].includes(d.status));
+    assert.equal(d.status, 'complete', d.error);
+    assert.equal(digest(await fs.readFile(d.path)), digest(f.data));
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test('permanent HTTP failures on byte ranges fail without retrying', async t => {
   const requests = new Map();
   const f = await fixture(t, { intercept: (req, res) => {

@@ -45,6 +45,15 @@ export async function request(url, { method = 'GET', headers = {}, signal, redir
   return response;
 }
 
+export function isNonRangedHost(url) {
+  try {
+    const { hostname } = new URL(url);
+    return /(^|\.)(fbcdn\.net|facebook\.com|fb\.watch|fbsbx\.com|cdninstagram\.com|instagram\.com)$/i.test(hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function probe(url, headers, signal) {
   let response = await request(url, { method: 'HEAD', headers, signal });
   const headStatus = response.statusCode;
@@ -64,8 +73,9 @@ export async function probe(url, headers, signal) {
   if (info.status < 200 || info.status >= 300) throw new Error(`Server returned HTTP ${info.status}.`);
   const range = /^bytes \d+-\d+\/(\d+)$/.exec(info.headers['content-range'] || '');
   const total = range ? Number(range[1]) : Number(info.headers['content-length']);
+  const ranges = !isNonRangedHost(url) && (info.headers['accept-ranges'] === 'bytes' || info.status === 206);
   return { ...info, total: Number.isSafeInteger(total) && total >= 0 ? total : null,
-    ranges: info.headers['accept-ranges'] === 'bytes' || info.status === 206,
+    ranges,
     validator: info.headers.etag && !info.headers.etag.startsWith('W/') ? info.headers.etag : info.headers['last-modified'] || null };
 }
 

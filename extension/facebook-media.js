@@ -50,7 +50,7 @@
   function isFacebook(url) {
     try {
       const u = new URL(url);
-      return /(^|\.)facebook\.com$/.test(u.hostname) || /(^|\.)fb\.watch$/.test(u.hostname);
+      return /(^|\.)(facebook\.com|fb\.watch|fbcdn\.net|fbsbx\.com)$/i.test(u.hostname);
     } catch {
       return false;
     }

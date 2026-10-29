@@ -428,12 +428,14 @@ export class DownloadEngine extends EventEmitter {
         const h = { ...headers };
         if (ranged) { h.Range = `bytes=${start}-${segment.end}`; if (info.validator) h['If-Range'] = info.validator; }
         const response = await request(url, { headers: h, signal });
-        if ((ranged && response.statusCode !== 206) || (!ranged && response.statusCode !== 200)) {
+        if (ranged && response.statusCode === 200 && segment.start === 0 && segment.downloaded === 0 && d.segments.length === 1) {
+          // If the server ignored Range and returned full body for the entire single-segment file, accept it cleanly.
+        } else if ((ranged && response.statusCode !== 206) || (!ranged && response.statusCode !== 200)) {
           const status = response.statusCode; response.destroy();
           throw failure(`Server returned HTTP ${status}${ranged ? ' instead of a byte range' : ''}.`, transientStatus(status),
             status === 429 || status === 503 ? retryAfter(response.headers['retry-after']) : null);
         }
-        if (ranged) {
+        if (ranged && response.statusCode === 206) {
           const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers['content-range'] || '');
           if (!match || Number(match[1]) !== start || Number(match[2]) !== segment.end || Number(match[3]) !== info.total) { response.destroy(); throw failure('Server returned an inconsistent byte range.'); }
         }

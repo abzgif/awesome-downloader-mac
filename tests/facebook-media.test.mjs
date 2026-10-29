@@ -3,12 +3,23 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { extractFacebookMedia, isFacebook, unescapeJsonUrl } = require('../extension/facebook-media.js');
+const { mediaChoices } = require('../extension/media-choices.js');
+import { isNonRangedHost } from '../core/http.mjs';
 
 test('identifies facebook URLs', () => {
   assert.equal(isFacebook('https://www.facebook.com/watch/?v=123456789'), true);
   assert.equal(isFacebook('https://m.facebook.com/reel/987654321'), true);
   assert.equal(isFacebook('https://fb.watch/xyz123'), true);
+  assert.equal(isFacebook('https://scontent.fdac179-1.fna.fbcdn.net/o1/v/t2/sample.mp4'), true);
   assert.equal(isFacebook('https://youtube.com/watch?v=123'), false);
+});
+
+test('identifies non-ranged hosts', () => {
+  assert.equal(isNonRangedHost('https://scontent.fdac179-1.fna.fbcdn.net/o1/v/t2/sample.mp4'), true);
+  assert.equal(isNonRangedHost('https://video.xx.fbcdn.net/v/sample.mp4'), true);
+  assert.equal(isNonRangedHost('https://facebook.com/video.mp4'), true);
+  assert.equal(isNonRangedHost('https://scontent.cdninstagram.com/v/sample.mp4'), true);
+  assert.equal(isNonRangedHost('https://example.com/file.bin'), false);
 });
 
 test('unescapes JSON escaped URLs', () => {
@@ -29,4 +40,8 @@ test('extracts HD and SD playable URLs from Facebook page scripts', () => {
   assert.equal(items[0].url, 'https://video.fsub.fbcdn.net/v/hd_sample.mp4?test=1');
   assert.equal(items[1].quality, 'SD');
   assert.equal(items[1].url, 'https://video.fsub.fbcdn.net/v/sd_sample.mp4?test=2');
+
+  const choices = mediaChoices(items);
+  assert.equal(choices.length, 2);
+  assert.equal(choices[0].audioState, 'Video + audio');
 });
