@@ -12,7 +12,6 @@ import {downloadSabr,normalizeSabrSession} from './sabr.mjs';
 const TRANSIENT = new Set(['downloading', 'probing', 'assembling']);
 const CATEGORY = { Video: /\.(mp4|webm|mkv|mov|avi|m4v)$/i, Audio: /\.(mp3|m4a|aac|flac|ogg|wav)$/i, Archives: /\.(zip|7z|rar|tar|gz|iso)$/i, Documents: /\.(pdf|docx?|xlsx?|pptx?|txt|csv|epub)$/i, Programs: /\.(dmg|pkg|app|exe|msi|msix)$/i };
 export function safeFilename(value) {
-export function safeFilename(value) {
   let name = path.basename(String(value || 'download')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '');
   if (name.length > 180) {
     const extension = path.extname(name);
@@ -21,9 +20,6 @@ export function safeFilename(value) {
       name = basename + extension;
     } else name = name.slice(0, 180).replace(/[. ]+$/, '');
   }
-  if (!name || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `download_${name || 'file'}`;
-  return name;
-}
   if (!name || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `download_${name || 'file'}`;
   return name;
 }

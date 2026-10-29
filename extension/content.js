@@ -46,6 +46,10 @@
       resizeObserver.observe(video);
       document.documentElement.appendChild(host);
       const report = () => {
+        if (globalThis.facebookMedia?.isFacebook(location.href)) {
+          const fbItems = globalThis.facebookMedia.extractFacebookMedia(document.documentElement.innerHTML, location.href);
+          if (fbItems.length) send({action:'remember', items: fbItems}).catch(() => {});
+        }
         const urls = [video.currentSrc, video.src, ...Array.from(video.querySelectorAll('source'), source => source.src)].map(direct).filter(Boolean);
         if (urls.length) send({action:'remember', items: urls.map(url => ({url, title:document.title}))}).catch(() => {});
       };
@@ -69,6 +73,13 @@
           const hint=document.createElement('p'); hint.textContent='Checking available video formats…';
           chooser.append(hint); shadow.append(chooser); position();
           try {
+            if (globalThis.facebookMedia?.isFacebook(location.href)) {
+              const html = document.documentElement.innerHTML;
+              const fbItems = globalThis.facebookMedia.extractFacebookMedia(html, location.href);
+              if (fbItems.length) {
+                await send({action:'remember', items: fbItems}).catch(() => {});
+              }
+            }
             const result=await send({action:'listForFrame'});
             if(!result?.ok)throw new Error(result?.error||'Could not list video formats.');
             hint.textContent='Choose a format to download';

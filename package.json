@@ -1,6 +1,6 @@
 {
   "name": "awesome-downloader",
-  "version": "0.1.0-mac",
+  "version": "0.1.0",
   "description": "A macOS download manager with segmented transfers and browser video capture",
   "main": "desktop/main.cjs",
   "private": true,

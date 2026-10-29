@@ -12,6 +12,6 @@
   "content_scripts": [
     {"matches":["https://www.youtube.com/*","https://youtube.com/*","https://m.youtube.com/*"],"js":["youtube-media.js","youtube-page.js"],"world":"MAIN","run_at":"document_start"},
     {"matches":["https://www.youtube.com/*","https://youtube.com/*","https://m.youtube.com/*"],"js":["youtube-relay.js"],"run_at":"document_start"},
-    {"matches": ["http://*/*", "https://*/*"], "js": ["media-choices.js", "content.js"], "all_frames": true, "run_at": "document_idle"}
+    {"matches": ["http://*/*", "https://*/*"], "js": ["media-choices.js", "facebook-media.js", "content.js"], "all_frames": true, "run_at": "document_idle"}
   ]
 }
