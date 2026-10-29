@@ -20,7 +20,7 @@ buttons. Open-source implementation ported to macOS with native Apple Silicon
 
 ## Installation
 
-1. Download **Awesome-Downloader-0.1.0-macOS-arm64.dmg** (Apple Silicon M1/M2/M3/M4) or **x64.dmg** (Intel Macs) from GitHub Releases.
+1. Download **Awesome-Downloader-0.1.1-macOS-arm64.dmg** (Apple Silicon M1/M2/M3/M4) or **x64.dmg** (Intel Macs) from GitHub Releases.
 2. Open the DMG and drag **Awesome Downloader** into your **Applications** folder.
 3. Launch Awesome Downloader from Applications or Spotlight.
 

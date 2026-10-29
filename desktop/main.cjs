@@ -145,7 +145,7 @@ if (process.argv.includes('--native-host')) {
       // macOS application menu
       Menu.setApplicationMenu(Menu.buildFromTemplate([
         { role: 'appMenu', submenu: [
-          { label: 'About Awesome Downloader', click: () => dialog.showMessageBox(window, { title: 'About Awesome Downloader', message: 'Awesome Downloader 0.1.0-mac', detail: 'macOS download manager with browser integration. Ported from the original Windows implementation.' }) },
+          { label: 'About Awesome Downloader', click: () => dialog.showMessageBox(window, { title: 'About Awesome Downloader', message: 'Awesome Downloader 0.1.1-mac', detail: 'macOS download manager with browser integration. Ported from the original Windows implementation.' }) },
           { type: 'separator' },
           { role: 'hide' },
           { role: 'hideOthers' },
