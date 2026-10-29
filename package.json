@@ -16,7 +16,7 @@
     "dist:zip": "electron-builder --mac zip --publish never"
   },
   "devDependencies": {
-    "electron": "44.9.0",
+    "electron": "44.9.1",
     "electron-builder": "^26.15.3",
     "playwright": "^1.58.2"
   },

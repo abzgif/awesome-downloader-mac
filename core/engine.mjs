@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { validUrl, cleanHeaders, request, probe } from './http.mjs';
+import { validUrl, cleanHeaders, request, probe, transientStatus, retryAfter } from './http.mjs';
 import { resolveHls, scopedHeaders } from './hls.mjs';
 import { youtubeUrl, downloadYoutube } from './youtube.mjs';
 import {streamProgress} from './stream-progress.mjs';
@@ -12,17 +12,39 @@ import {downloadSabr,normalizeSabrSession} from './sabr.mjs';
 const TRANSIENT = new Set(['downloading', 'probing', 'assembling']);
 const CATEGORY = { Video: /\.(mp4|webm|mkv|mov|avi|m4v)$/i, Audio: /\.(mp3|m4a|aac|flac|ogg|wav)$/i, Archives: /\.(zip|7z|rar|tar|gz|iso)$/i, Documents: /\.(pdf|docx?|xlsx?|pptx?|txt|csv|epub)$/i, Programs: /\.(dmg|pkg|app|exe|msi|msix)$/i };
 export function safeFilename(value) {
-  let name = path.basename(String(value || 'download')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').slice(0, 180);
+export function safeFilename(value) {
+  let name = path.basename(String(value || 'download')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '');
+  if (name.length > 180) {
+    const extension = path.extname(name);
+    if (extension && extension.length < 180) {
+      const basename = name.slice(0, -extension.length).slice(0, 180 - extension.length).replace(/[. ]+$/, '');
+      name = basename + extension;
+    } else name = name.slice(0, 180).replace(/[. ]+$/, '');
+  }
+  if (!name || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `download_${name || 'file'}`;
+  return name;
+}
   if (!name || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `download_${name || 'file'}`;
   return name;
 }
 function suggestedName(url, disposition) {
-  const utf = /filename\*=UTF-8''([^;]+)/i.exec(disposition || '');
+  const utf = /filename\*\s*=\s*(?:"([^"]*)"|([^;]*))/i.exec(disposition || '');
   const plain = /filename="([^"]+)"|filename=([^;]+)/i.exec(disposition || '');
-  try { return safeFilename(utf ? decodeURIComponent(utf[1]) : plain ? (plain[1] || plain[2]).trim() : decodeURIComponent(new URL(url).pathname.split('/').pop()) || 'download'); }
-  catch { return 'download'; }
+  const extended = (utf?.[1] || utf?.[2] || '').trim().match(/^UTF-8'[^']*'(.*)$/i)?.[1];
+  const candidates = [
+    extended === undefined ? null : () => decodeURIComponent(extended),
+    plain ? () => (plain[1] || plain[2]).trim() : null,
+    () => decodeURIComponent(new URL(url).pathname.split('/').pop())
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try { const name = candidate(); if (name) return safeFilename(name); } catch { /* Try the standard fallback. */ }
+  }
+  return 'download';
 }
 const categoryFor = name => Object.entries(CATEGORY).find(([, re]) => re.test(name))?.[0] || 'Other';
+// Marks a transfer failure that another attempt cannot fix, or the wait the server asked for.
+const failure = (message, retryable = false, retryDelay = null) => Object.assign(new Error(message), { retryable, retryDelay });
 
 export class DownloadEngine extends EventEmitter {
   constructor({ dataDirectory, downloadDirectory, tickMs = 500 }) {
@@ -192,7 +214,7 @@ export class DownloadEngine extends EventEmitter {
     if (wait) await delay(wait, undefined, { signal });
   }
   async run(d, signal) {
-    d.status = 'probing'; d.error = null; this.changed();
+    d.status = 'probing'; d.error = null; d.notice = null; this.changed();
     if(d.sabr){await this.runSabr(d,cleanHeaders(d.headers),signal);return;}
     if(youtubeUrl(d.url)) {
       const dir=path.join(this.partsDirectory,d.id);await fs.mkdir(dir,{recursive:true});
@@ -216,6 +238,8 @@ export class DownloadEngine extends EventEmitter {
     await fs.mkdir(dir, { recursive: true });
     // Resume only when both resource identity and range support can be established.
     if (!info.ranges || !info.validator || d.validator !== info.validator || d.total !== info.total) {
+      if (d.segments.some(s => s.downloaded > 0)) d.notice = `${!info.ranges ? 'The server does not support resuming'
+        : !info.validator ? 'The server does not identify the file version' : 'The file changed on the server'}; restarted from the beginning.`;
       await fs.rm(dir, { recursive: true, force: true });
       await fs.mkdir(dir, { recursive: true });
       d.segments = [];
@@ -409,13 +433,15 @@ export class DownloadEngine extends EventEmitter {
         if (ranged) { h.Range = `bytes=${start}-${segment.end}`; if (info.validator) h['If-Range'] = info.validator; }
         const response = await request(url, { headers: h, signal });
         if ((ranged && response.statusCode !== 206) || (!ranged && response.statusCode !== 200)) {
-          response.destroy(); throw new Error(`Server returned HTTP ${response.statusCode}${ranged ? ' instead of a byte range' : ''}.`);
+          const status = response.statusCode; response.destroy();
+          throw failure(`Server returned HTTP ${status}${ranged ? ' instead of a byte range' : ''}.`, transientStatus(status),
+            status === 429 || status === 503 ? retryAfter(response.headers['retry-after']) : null);
         }
         if (ranged) {
           const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers['content-range'] || '');
-          if (!match || Number(match[1]) !== start || Number(match[2]) !== segment.end || Number(match[3]) !== info.total) { response.destroy(); throw new Error('Server returned an inconsistent byte range.'); }
+          if (!match || Number(match[1]) !== start || Number(match[2]) !== segment.end || Number(match[3]) !== info.total) { response.destroy(); throw failure('Server returned an inconsistent byte range.'); }
         }
-        if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') { response.destroy(); throw new Error('Server ignored identity encoding; refusing to save corrupt ranges.'); }
+        if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') { response.destroy(); throw failure('Server ignored identity encoding; refusing to save corrupt ranges.'); }
         const out = await fs.open(file, 'a');
         try {
           for await (const chunk of response) {
@@ -429,8 +455,11 @@ export class DownloadEngine extends EventEmitter {
         if (expected !== null && segment.downloaded !== expected) throw new Error('Connection ended before the segment finished.');
         return;
       } catch (error) {
-        if (signal.aborted || attempt === 3) throw error;
-        await delay(250 * 2 ** attempt, undefined, { signal });
+        if (signal.aborted || attempt === 3 || error.retryable === false) throw error;
+        // Never shorten the server's requested cooldown. Long waits release
+        // the active job instead of consuming a download slot indefinitely.
+        if (error.retryDelay > 60000) throw failure('The server requested a longer cooldown. Retry after ' + Math.ceil(error.retryDelay / 1000) + ' seconds. Partial data has been kept.');
+        await delay(error.retryDelay ?? 250 * 2 ** attempt, undefined, { signal });
       }
     }
   }

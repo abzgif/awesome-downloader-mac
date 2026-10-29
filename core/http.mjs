@@ -35,6 +35,9 @@ export async function request(url, { method = 'GET', headers = {}, signal, redir
       delete forwarded.authorization;
       delete forwarded.cookie;
       delete forwarded.origin;
+      // A Referer can contain private page paths or query parameters. Never
+      // disclose the originating page to a different origin during redirects.
+      delete forwarded.referer;
     }
     return request(target, { method, headers: forwarded, signal, redirects: redirects + 1 });
   }
@@ -44,9 +47,17 @@ export async function request(url, { method = 'GET', headers = {}, signal, redir
 
 export async function probe(url, headers, signal) {
   let response = await request(url, { method: 'HEAD', headers, signal });
-  if ([405, 501].includes(response.statusCode)) {
+  const headStatus = response.statusCode;
+  const headHasMetadata = response.headers['content-length'] || response.headers['content-range'] ||
+    response.headers['accept-ranges'] === 'bytes';
+  if (![200, 206].includes(response.statusCode) || !headHasMetadata) {
     response.resume();
     response = await request(url, { headers: { ...headers, Range: 'bytes=0-0' }, signal });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      response.destroy();
+      const status = headStatus >= 400 ? headStatus : response.statusCode;
+      throw new Error(`Server returned HTTP ${status}.`);
+    }
   }
   const info = { status: response.statusCode, headers: response.headers, url: response.finalUrl };
   response.destroy();
@@ -56,4 +67,14 @@ export async function probe(url, headers, signal) {
   return { ...info, total: Number.isSafeInteger(total) && total >= 0 ? total : null,
     ranges: info.headers['accept-ranges'] === 'bytes' || info.status === 206,
     validator: info.headers.etag && !info.headers.etag.startsWith('W/') ? info.headers.etag : info.headers['last-modified'] || null };
+}
+
+// Candidates for retrying the same GET; session/URL recovery is a separate concern.
+export const transientStatus = status => status === 408 || status === 429 || (status >= 500 && status <= 599 && ![501, 505].includes(status));
+
+// Preserve the requested cooldown; the caller decides whether to wait or stop.
+export function retryAfter(value, now = Date.now()) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const ms = /^\d+$/.test(value.trim()) ? Number(value.trim()) * 1000 : Date.parse(value) - now;
+  return Number.isFinite(ms) ? Math.max(0, ms) : null;
 }

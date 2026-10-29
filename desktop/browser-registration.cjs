@@ -7,18 +7,34 @@ const crypto = require('node:crypto');
 const MANIFEST_DIRS = {
   Chrome: path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
   Edge: path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts'),
+  Brave: path.join(os.homedir(), 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+  Opera: path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
   Firefox: path.join(os.homedir(), 'Library', 'Application Support', 'Mozilla', 'NativeMessagingHosts')
 };
 
 // macOS profile directories per browser.
 const PROFILE_DIRS = {
   Chrome: path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome'),
-  Edge: path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge')
+  Edge: path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge'),
+  Brave: path.join(os.homedir(), 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser'),
+  Opera: path.join(os.homedir(), 'Library', 'Application Support', 'com.operasoftware.Opera')
 };
 
+const BROWSERS = {
+  Chrome: { manifestKey: 'Chrome' },
+  Edge: { manifestKey: 'Edge' },
+  Brave: { manifestKey: 'Brave' },
+  Opera: { manifestKey: 'Opera' },
+  Firefox: { manifestKey: 'Firefox', firefox: true }
+};
+
+function browserSpec(browser) {
+  const spec = BROWSERS[browser];
+  if (!spec) throw new Error('Choose Chrome, Edge, Brave, Opera, or Firefox.');
+  return spec;
+}
+
 function computeExtensionId(folderPath) {
-  // Chrome derives an unpacked extension ID by taking sha256(path_utf8)[:32]
-  // and converting hex characters 0-f to letters a-p.
   const hash = crypto.createHash('sha256').update(folderPath, 'utf8').digest('hex').slice(0, 32);
   let id = '';
   for (let i = 0; i < hash.length; i++) {
@@ -28,25 +44,33 @@ function computeExtensionId(folderPath) {
 }
 
 async function registerBrowser({ browser, extensionId }, { dataDirectory, integrationRoot }) {
-  if (!['Chrome', 'Edge', 'Firefox'].includes(browser)) throw new Error('Choose Chrome, Edge, or Firefox.');
-  if (typeof extensionId !== 'string' || !(browser === 'Firefox' ? /^[A-Za-z0-9@._{}-]{1,128}$/ : /^[a-p]{32}$/).test(extensionId)) throw new Error("Copy the extension ID from your browser's extensions page.");
+  const spec = browserSpec(browser);
+  if (typeof extensionId !== 'string' || !(spec.firefox ? /^[A-Za-z0-9@._{}-]{1,128}$/ : /^[a-p]{32}$/).test(extensionId)) throw new Error("Copy the extension ID from your browser's extensions page.");
   const host = 'com.awesome.downloader';
   const nativeHostPath = path.join(integrationRoot, 'integration', 'native-host.sh');
-  const manifest = { name: host, description: 'Awesome Downloader browser bridge', path: nativeHostPath, type: 'stdio' };
-  if (browser === 'Firefox') manifest.allowed_extensions = [extensionId];
-  else manifest.allowed_origins = [`chrome-extension://${extensionId}/`];
-  const content = JSON.stringify(manifest, null, 2);
-  await fs.access(nativeHostPath);
-  const manifestDir = MANIFEST_DIRS[browser];
-  await fs.mkdir(manifestDir, { recursive: true });
+  const manifestDir = MANIFEST_DIRS[spec.manifestKey];
   const manifestPath = path.join(manifestDir, `${host}.json`);
+  const manifest = { name: host, description: 'Awesome Downloader browser bridge', path: nativeHostPath, type: 'stdio' };
+  if (spec.firefox) manifest.allowed_extensions = [extensionId];
+  else manifest.allowed_origins = [`chrome-extension://${extensionId}/`];
+
+  await fs.access(nativeHostPath);
+  await fs.mkdir(manifestDir, { recursive: true });
   let previous;
   try { previous = await fs.readFile(manifestPath, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  if (previous && !spec.firefox) {
+    try {
+      const old = JSON.parse(previous);
+      manifest.allowed_origins = [...new Set([...(old.allowed_origins || []), ...manifest.allowed_origins])].filter(value => /^chrome-extension:\/\/[a-p]{32}\/$/.test(value));
+    } catch {}
+  }
+  const content = JSON.stringify(manifest, null, 2);
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-');
   if (previous && previous !== content) await fs.writeFile(`${manifestPath}.${stamp}.bak`, previous);
   if (previous !== content) await fs.writeFile(manifestPath, content, 'utf8');
+
   let extensionPath = path.join(integrationRoot, 'extension');
-  if (browser === 'Firefox') {
+  if (spec.firefox) {
     const folder = path.join(dataDirectory, 'NativeMessaging');
     await fs.mkdir(folder, { recursive: true });
     extensionPath = path.join(folder, 'firefox-extension');
@@ -64,8 +88,6 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
 
   for (const [browser, profileRoot] of Object.entries(PROFILE_DIRS)) {
     const ids = new Set();
-
-    // 1. Compute deterministic extension IDs from possible extension paths (unpacked in Chrome)
     const possiblePaths = [
       path.join(integrationRoot, 'extension'),
       await fs.realpath(path.join(integrationRoot, 'extension')).catch(() => null)
@@ -75,10 +97,9 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
       ids.add(computeExtensionId(p));
     }
 
-    // 2. Also try reading profile directories if macOS permissions permit
     let profiles;
     try { profiles = await fs.readdir(profileRoot, { withFileTypes: true }); } catch { profiles = []; }
-    for (const profile of profiles.filter(p => p.isDirectory() && /^(Default|Profile \d+)$/.test(p.name))) {
+    for (const profile of profiles.filter(p => p.isDirectory() && (p.name === '.' || /^(Default|Profile \d+)$/.test(p.name)))) {
       for (const file of ['Preferences', 'Secure Preferences']) {
         try {
           const settings = JSON.parse(await fs.readFile(path.join(profileRoot, profile.name, file), 'utf8')).extensions?.settings || {};
@@ -94,39 +115,38 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot }) {
             }
             if (ownExtension) ids.add(id);
           }
-        } catch { /* Browser preference file read may fail or be locked */ }
+        } catch {}
       }
     }
 
-    // Always ensure the manifest exists in the NativeMessagingHosts folder
     const manifestDir = MANIFEST_DIRS[browser];
-    try {
-      await fs.mkdir(manifestDir, { recursive: true });
-      const manifestPath = path.join(manifestDir, `${host}.json`);
-      let existingOrigins = [];
+    if (manifestDir) {
       try {
-        const existing = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-        if (Array.isArray(existing.allowed_origins)) existingOrigins = existing.allowed_origins;
+        await fs.mkdir(manifestDir, { recursive: true });
+        const manifestPath = path.join(manifestDir, `${host}.json`);
+        let existingOrigins = [];
+        try {
+          const existing = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+          if (Array.isArray(existing.allowed_origins)) existingOrigins = existing.allowed_origins;
+        } catch {}
+
+        for (const id of ids) {
+          const origin = `chrome-extension://${id}/`;
+          if (!existingOrigins.includes(origin)) existingOrigins.push(origin);
+        }
+
+        if (existingOrigins.length > 0) {
+          const manifest = {
+            name: host,
+            description: 'Awesome Downloader browser bridge',
+            path: nativeHostPath,
+            type: 'stdio',
+            allowed_origins: existingOrigins
+          };
+          await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+          results.push({ browser, connected: true });
+        }
       } catch {}
-
-      for (const id of ids) {
-        const origin = `chrome-extension://${id}/`;
-        if (!existingOrigins.includes(origin)) existingOrigins.push(origin);
-      }
-
-      if (existingOrigins.length > 0) {
-        const manifest = {
-          name: host,
-          description: 'Awesome Downloader browser bridge',
-          path: nativeHostPath,
-          type: 'stdio',
-          allowed_origins: existingOrigins
-        };
-        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
-        results.push({ browser, connected: true });
-      }
-    } catch {
-      /* Manifest directory creation or write may fail if browser not installed */
     }
   }
   return results;
@@ -140,4 +160,4 @@ async function prepareNativeHost(integrationRoot, executable) {
   await fs.writeFile(path.join(folder, 'runtime-path.txt'), executable, 'utf8');
 }
 
-module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost, computeExtensionId };
+module.exports = { BROWSERS, browserSpec, registerBrowser, connectInstalledBrowsers, prepareNativeHost, computeExtensionId };
