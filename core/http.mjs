@@ -6,6 +6,10 @@ export function validUrl(value) {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS downloads are supported.');
   if (url.username || url.password) throw new Error('Use request headers for authentication, not credentials in URLs.');
+  if (isNonRangedHost(url.href) && (url.searchParams.has('bytestart') || url.searchParams.has('byteend'))) {
+    url.searchParams.delete('bytestart');
+    url.searchParams.delete('byteend');
+  }
   return url.href;
 }
 

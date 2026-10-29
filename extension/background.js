@@ -52,7 +52,15 @@ function rememberRequest(details) {
 // Chromium (which now also defines `browser`) withholds Cookie and Referer unless extraHeaders is requested; Firefox has no such option.
 api.webRequest.onBeforeSendHeaders?.addListener(rememberRequest,{urls:['http://*/*','https://*/*']},['requestHeaders',...(api.webRequest.OnBeforeSendHeadersOptions?.EXTRA_HEADERS?['extraHeaders']:[])]);
 function httpUrl(value) {
-  try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
+  try {
+    const u = new URL(value);
+    if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) return null;
+    if (/(^|\.)(fbcdn\.net|facebook\.com|fb\.watch|fbsbx\.com)$/i.test(u.hostname) && (u.searchParams.has('bytestart') || u.searchParams.has('byteend'))) {
+      u.searchParams.delete('bytestart');
+      u.searchParams.delete('byteend');
+    }
+    return u.href;
+  } catch { return null; }
 }
 function unsupported(url, mime = '') { return /\.mpd(?:[?#]|$)/i.test(url) || /dash\+xml/i.test(mime); }
 function isFragment(url) { return /\.(m4s|ts|aac)(?:[?#]|$)/i.test(url) || /\/init[^/]*\.mp4(?:[?#]|$)/i.test(url); }

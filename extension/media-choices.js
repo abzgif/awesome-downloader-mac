@@ -1,9 +1,27 @@
 (function(root){
+  function decodeEfg(efgStr) {
+    if (!efgStr) return null;
+    try {
+      const json = typeof atob === 'function' ? atob(efgStr) : Buffer.from(efgStr, 'base64').toString('utf8');
+      return JSON.parse(json);
+    } catch { return null; }
+  }
   function assetKey(value) {
     try {
       const u=new URL(value);
-      if (!/(^|\.)twimg\.com$/.test(u.hostname)) return '';
-      return /\/(?:amplify_video|ext_tw_video|tweet_video)(?:_thumb)?\/(\d+)/.exec(u.pathname)?.[1] || '';
+      if (/(^|\.)twimg\.com$/.test(u.hostname)) return /\/(?:amplify_video|ext_tw_video|tweet_video)(?:_thumb)?\/(\d+)/.exec(u.pathname)?.[1] || '';
+      if (/(^|\.)(facebook\.com|fb\.watch)$/i.test(u.hostname)) {
+        const reel = /\/reel\/(\d+)/.exec(u.pathname);
+        if (reel) return 'fb_' + reel[1];
+        const v = u.searchParams.get('v');
+        if (v && /^\d+$/.test(v)) return 'fb_' + v;
+      }
+      if (/(^|\.)(fbcdn\.net|facebook\.com|fb\.watch|fbsbx\.com)$/i.test(u.hostname)) {
+        const efg = decodeEfg(u.searchParams.get('efg'));
+        if (efg?.video_id) return 'fb_' + efg.video_id;
+        if (efg?.xpv_asset_id) return 'fb_' + efg.xpv_asset_id;
+      }
+      return '';
     } catch { return ''; }
   }
   function mediaChoices(items,context={}) {
@@ -11,6 +29,34 @@
     if(items.some(i=>i.provider==='youtube'))return items.filter(i=>i.provider==='youtube');
     let list=items.filter(i=>!i.unsupported && !/\.(m4s|ts|aac)(?:[?#]|$)/i.test(i.url)&&!/^https:\/\/(?:www\.)?youtube\.com\/s\//.test(i.url));
     if(wanted) list=list.filter(i=>assetKey(i.url)===wanted);
+    const fbAudios = new Map();
+    for (const item of list) {
+      try {
+        const u = new URL(item.url);
+        if (/(^|\.)(fbcdn\.net|facebook\.com|fb\.watch|fbsbx\.com)$/i.test(u.hostname)) {
+          const efg = decodeEfg(u.searchParams.get('efg'));
+          const isAudio = /audio/i.test(efg?.vencode_tag || '') || /audio/i.test(item.mime || '');
+          const asset = assetKey(item.url);
+          if (asset && isAudio && !fbAudios.has(asset)) fbAudios.set(asset, item.url);
+        }
+      } catch {}
+    }
+    for (const item of list) {
+      try {
+        const u = new URL(item.url);
+        if (/(^|\.)(fbcdn\.net|facebook\.com|fb\.watch|fbsbx\.com)$/i.test(u.hostname)) {
+          const efg = decodeEfg(u.searchParams.get('efg'));
+          const isAudio = /audio/i.test(efg?.vencode_tag || '') || /audio/i.test(item.mime || '');
+          const asset = assetKey(item.url);
+          if (asset && !isAudio && fbAudios.has(asset)) {
+            item.audioUrl = fbAudios.get(asset);
+            item.audioState = 'Video + audio';
+            item.format = 'MP4';
+            item.outputFormat = 'mp4';
+          }
+        }
+      } catch {}
+    }
     const richAssets=new Set(list.filter(i=>i.masterUrl).map(i=>assetKey(i.url)).filter(Boolean));
     const audioUrls=new Set(list.map(i=>i.audioUrl).filter(Boolean));
     list=list.filter(i=>!audioUrls.has(i.url) && (!richAssets.has(assetKey(i.url))||i.masterUrl));
